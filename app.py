@@ -1,55 +1,77 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
-import pandas as pd
 import tensorflow as tf
+import joblib
 
+# --- Initialize Flask ---
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
 
-# Dummy historical data 
-historical_data = pd.Series(np.random.randint(20, 80, size=100))
+# --- Load model & scaler ---
+MODEL_PATH = "lstm_energy_model_multi.h5"
+SCALER_PATH = "scaler_multi.pkl"
+SEQ_LEN = 24
 
-def prepare_input(values, lookback=24):
-    arr = np.array(values).reshape(1, lookback, 1)
-    return arr
+model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+scaler = joblib.load(SCALER_PATH)
 
-@app.route("/predict", methods=["POST"])
-def predict():
+# --- Helper: Prepare input for prediction ---
+def prepare_input(values):
+    values = np.array(values[-SEQ_LEN:]).reshape(-1, 1)
+    scaled = scaler.transform(values)
+    return scaled.reshape(1, SEQ_LEN, 1)
+
+# --- Helper: Compute trend metadata ---
+def get_trend_metadata(forecast):
+    trend = np.mean(np.diff(forecast))
+    arrow_direction = "up" if trend > 0 else "down"
+    curvature = "accelerating" if np.mean(np.diff(np.diff(forecast))) > 0 else "steady"
+    return arrow_direction, curvature
+
+# --- Endpoint: Forecast next <horizon> hours ---
+@app.route("/predict/<int:horizon>", methods=["POST"])
+def predict_horizon(horizon):
     try:
-        data = request.json
+        data = request.get_json()
         values = data.get("values")
 
-        if not values or len(values) < 24:
-            return jsonify({"error": "Send at least 24 values"}), 400
+        print("Incoming values:", values)
 
-        input_data = prepare_input(values[-24:])
+        if not values or len(values) < SEQ_LEN:
+            return jsonify({"error": f"Need at least {SEQ_LEN} values"}), 400
 
-        # Load model lazily
-        model = tf.keras.models.load_model("lstm_energy_model.h5", compile=False)
-        prediction = model.predict(input_data)
+        input_data = prepare_input(values)
+        print("Prepared input shape:", input_data.shape)
 
-        return jsonify({"prediction": float(prediction[0][0])})
+        prediction_scaled = model.predict(input_data)
+        print("Raw prediction (scaled):", prediction_scaled)
+
+        try:
+            prediction_rescaled = scaler.inverse_transform(
+                prediction_scaled.reshape(-1, 1)
+            ).flatten()
+        except Exception as e:
+            print("Inverse scaling failed:", e)
+            return jsonify({"error": f"Scaling error: {str(e)}"}), 500
+
+        forecast = prediction_rescaled[:horizon].tolist()
+        print("Rescaled forecast:", forecast)
+
+        # --- Compute trend metadata ---
+        arrow, curvature = get_trend_metadata(forecast)
+
+        return jsonify({
+            "forecast": forecast,
+            "arrow": arrow,
+            "curvature": curvature
+        })
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print("Prediction error:", e)
+        return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
 
-@app.route("/weekly-trend", methods=["GET"])
-def weekly_trend():
-    try:
-        last_7_days = historical_data[-24*7:]
-        week_avg = [int(last_7_days[i*24:(i+1)*24].mean()) for i in range(7)]
-        return jsonify({"week": week_avg})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/yesterday-usage", methods=["GET"])
-def yesterday_usage():
-    try:
-        yesterday = int(historical_data[-48:-24].mean())
-        return jsonify({"yesterday": yesterday})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+# --- Health check ---
 @app.route("/", methods=["GET"])
 def home():
     return "*Energy Forecasting API is running!*"
