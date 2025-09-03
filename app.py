@@ -8,14 +8,13 @@ import tensorflow as tf
 model = tf.keras.models.load_model("lstm_energy_model.h5", compile=False)
 
 app = Flask(__name__)
-CORS(app)  # allow frontend to call backend
+CORS(app, origins=["https://energyforecast.netlify.app/"])
 
-# Dummy historical data (replace with real DB or CSV)
+
+# Dummy historical data 
 historical_data = pd.Series(
-    np.random.randint(20, 80, size=100)  # last 100 hours
-)
+    np.random.randint(20, 80, size=100)  
 
-# Utility: prepare input for LSTM (same shape as training)
 def prepare_input(values, lookback=24):
     arr = np.array(values).reshape(1, lookback, 1)
     return arr
@@ -35,7 +34,6 @@ def predict():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# New endpoint: Weekly trend (average per day for last 7 days)
 @app.route("/weekly-trend", methods=["GET"])
 def weekly_trend():
     try:
@@ -48,12 +46,10 @@ def weekly_trend():
         return jsonify({"week": week_avg})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-# New endpoint: Yesterday usage (last 24 hours)
 @app.route("/yesterday-usage", methods=["GET"])
 def yesterday_usage():
     try:
-        yesterday = int(historical_data[-48:-24].mean())  # 24h before last day
+        yesterday = int(historical_data[-48:-24].mean())  
         return jsonify({"yesterday": yesterday})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
