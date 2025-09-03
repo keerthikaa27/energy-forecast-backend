@@ -8,12 +8,13 @@ import tensorflow as tf
 model = tf.keras.models.load_model("lstm_energy_model.h5", compile=False)
 
 app = Flask(__name__)
-CORS(app, origins=["https://energyforecast.netlify.app/"])
+CORS(app, origins=["http://localhost:3000"])
 
 
 # Dummy historical data 
 historical_data = pd.Series(
-    np.random.randint(20, 80, size=100)  
+    np.random.randint(20, 80, size=100)
+)  
 
 def prepare_input(values, lookback=24):
     arr = np.array(values).reshape(1, lookback, 1)
