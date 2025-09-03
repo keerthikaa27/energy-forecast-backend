@@ -8,7 +8,8 @@ import tensorflow as tf
 model = tf.keras.models.load_model("lstm_energy_model.h5", compile=False)
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:3000"])
+CORS(app, supports_credentials=True)
+
 
 
 # Dummy historical data 
